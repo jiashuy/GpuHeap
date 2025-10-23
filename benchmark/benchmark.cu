@@ -7,17 +7,33 @@
 #include <cstdint>
 #include <random>
 #include <vector>
+#include "benchmark_utils.cuh"
 
-#define CUDA_CHECK(call)                                                        \
-    do {                                                                       \
-        cudaError_t err = call;                                                \
-        if (err != cudaSuccess) {                                              \
-            fprintf(stderr, "CUDA Error at %s:%d: %s\n",                       \
-                    __FILE__, __LINE__, cudaGetErrorString(err));              \
-            exit(EXIT_FAILURE);                                                \
-        }                                                                      \
-    } while (0)
+__global__ void warmup_kernel(float *data, int64_t len) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid < len) {
+      data[tid] += 1.0f;
+    }
+    
+}
 
+
+void warmup_GPU() {
+float *d_data;
+int64_t len = 1024L * 1024 * 1024;
+cudaMalloc(&d_data, len * sizeof(float));
+auto timer = Timer<float>(TimeUnit::MilliSecond);
+for (int i = 0; i < 10; i++) {
+  timer.start();
+  warmup_kernel<<<(len + 1023)/1024, 1024>>>(d_data, len);
+  timer.end();
+  CUDA_CHECK(cudaDeviceSynchronize()); 
+  std::cout << "Iteration " << i << " latency: " << timer.getResult() << " ms\n";
+}
+
+cudaDeviceSynchronize();
+cudaFree(d_data);
+}
 
 using namespace cuco;
 
@@ -43,20 +59,27 @@ template <typename Key, typename Value, int Capacity, int NumKeys>
 static void BM_insert()
 {
 
-    
+    auto timer = Timer<float>(TimeUnit::MilliSecond);
 
     GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(Capacity);
     CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
 
 
-    std::vector<pair<Key, Value>> h_pairs(NumKeys);
+    std::vector<pair<Key, Value>> h_pairs(Capacity);
     generate_kv_pairs_uniform<Key, Value>(h_pairs.begin(), h_pairs.end());
     const thrust::device_vector<pair<Key, Value>> d_pairs(h_pairs);
     CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
 
-    
-    pq.push(d_pairs.begin(), d_pairs.end());
-    CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
+    int i = 0;
+    for (auto begin = d_pairs.begin(); begin != d_pairs.end(); begin+=NumKeys) {
+      timer.start();
+      pq.push(begin, begin + NumKeys);
+      timer.end();
+      CUDA_CHECK(cudaDeviceSynchronize()); 
+      std::cout << "Iteration " << i++ << " latency: " << timer.getResult() << " ms\n";
+    }
+
+    std::cout << __LINE__ << "\n";
   
 }
 
@@ -65,24 +88,38 @@ static void BM_delete()
 {
   
     
-
+    auto timer = Timer<float>(TimeUnit::MilliSecond);
     GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(Capacity);
 
-    std::vector<pair<Key, Value>> h_pairs(NumKeys);
+    std::vector<pair<Key, Value>> h_pairs(Capacity);
     generate_kv_pairs_uniform<Key, Value>(h_pairs.begin(), h_pairs.end());
     thrust::device_vector<pair<Key, Value>> d_pairs(h_pairs);
+    for (auto begin = d_pairs.begin(); begin != d_pairs.end(); begin+=NumKeys) {
+      pq.push(begin, begin + NumKeys);
+    }
+    CUDA_CHECK(cudaDeviceSynchronize()); 
 
-    pq.push(d_pairs.begin(), d_pairs.end());
-    cudaDeviceSynchronize();
+    int i = 0;
+    for (auto begin = d_pairs.begin(); begin != d_pairs.end(); begin+=NumKeys) {
+      timer.start();
+      pq.pop(begin, begin + NumKeys);
+      timer.end();
+      CUDA_CHECK(cudaDeviceSynchronize()); 
+      std::cout << "Iteration " << i++ << " latency: " << timer.getResult() << " ms\n";
+    }
+
+    std::cout << __LINE__ << "\n";
 
     
-    pq.pop(d_pairs.begin(), d_pairs.end());
+    
     cudaDeviceSynchronize();
   
 }
 
 
 int main(int argc, char* argv[]) {
+
+  warmup_GPU();
 
   BM_insert<int64_t, int64_t, 128 * 1024 * 1024, 1024 * 1024>();
   CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
