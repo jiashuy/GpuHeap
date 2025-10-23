@@ -51,9 +51,13 @@ template <typename T>
 __device__ shared_memory_layout<T> get_shared_memory_layout(int* s, int dim, std::size_t node_size)
 {
   shared_memory_layout<T> result;
-  result.intersections = s;
-  result.a             = (T*)(s + 2 * (dim + 1));
+  result.a             = (T*)(s);
   result.b             = result.a + node_size;
+  result.intersections = (int*)(result.b + node_size);
+
+  // result.intersections = s;
+  // result.a             = (T*)(s + 2 * (dim + 1));
+  // result.b             = result.a + node_size;
   return result;
 }
 

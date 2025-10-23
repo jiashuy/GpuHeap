@@ -38,21 +38,17 @@ GpuHeap<T, Compare, Allocator>::GpuHeap(std::size_t initial_capacity,
 
   // Allocate device variables
 
-  // d_size_ = std::allocator_traits<int_allocator_type>::allocate(int_allocator_, 1);
   d_size_         = int_allocator_.allocate(1, cuda::stream_ref{stream});
 
 
   CUCO_CUDA_TRY(cudaMemsetAsync(d_size_, 0, sizeof(int), stream));
 
-  // d_p_buffer_size_ = std::allocator_traits<size_t_allocator_type>::allocate(size_t_allocator_, 1);
   d_p_buffer_size_ = size_t_allocator_.allocate(1, cuda::stream_ref{stream});
 
   CUCO_CUDA_TRY(cudaMemsetAsync(d_p_buffer_size_, 0, sizeof(std::size_t), stream));
 
-  // d_heap_ = std::allocator_traits<t_allocator_type>::allocate(
-  //   t_allocator_, node_capacity_ * node_size_ + node_size_);
 
-    d_heap_ = t_allocator_.allocate(node_capacity_ * node_size_ + node_size_, cuda::stream_ref{stream});
+  d_heap_ = t_allocator_.allocate(node_capacity_ * node_size_ + node_size_, cuda::stream_ref{stream});
 
   d_locks_ = int_allocator_.allocate(node_capacity_ + 1, cuda::stream_ref{stream});
 
@@ -66,12 +62,6 @@ GpuHeap<T, Compare, Allocator>::~GpuHeap()
   size_t_allocator_.deallocate(d_p_buffer_size_, 1, cuda::stream_ref{cudaStream_t{nullptr}});
   t_allocator_.deallocate(d_heap_, node_capacity_ * node_size_ + node_size_, cuda::stream_ref{cudaStream_t{nullptr}});
   int_allocator_.deallocate(d_locks_, node_capacity_ + 1, cuda::stream_ref{cudaStream_t{nullptr}});
-  // std::allocator_traits<int_allocator_type>::deallocate(int_allocator_, d_size_, 1);
-  // std::allocator_traits<size_t_allocator_type>::deallocate(size_t_allocator_, d_p_buffer_size_, 1);
-  // std::allocator_traits<t_allocator_type>::deallocate(
-  //   t_allocator_, d_heap_, node_capacity_ * node_size_ + node_size_);
-  // std::allocator_traits<int_allocator_type>::deallocate(
-  //   int_allocator_, d_locks_, node_capacity_ + 1);
 }
 
 template <typename T, typename Compare, typename Allocator>

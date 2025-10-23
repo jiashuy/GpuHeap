@@ -1,11 +1,23 @@
 #include "gpu_heap.cuh"
 #include <cuco/pair.cuh>
+#include <iostream>
 
 #include <thrust/device_vector.h>
 
 #include <cstdint>
 #include <random>
 #include <vector>
+
+#define CUDA_CHECK(call)                                                        \
+    do {                                                                       \
+        cudaError_t err = call;                                                \
+        if (err != cudaSuccess) {                                              \
+            fprintf(stderr, "CUDA Error at %s:%d: %s\n",                       \
+                    __FILE__, __LINE__, cudaGetErrorString(err));              \
+            exit(EXIT_FAILURE);                                                \
+        }                                                                      \
+    } while (0)
+
 
 using namespace cuco;
 
@@ -27,31 +39,34 @@ static void generate_kv_pairs_uniform(OutputIt output_begin, OutputIt output_end
   }
 }
 
-template <typename Key, typename Value, int NumKeys>
+template <typename Key, typename Value, int Capacity, int NumKeys>
 static void BM_insert()
 {
 
     
 
-    GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(NumKeys);
+    GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(Capacity);
+    CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
+
 
     std::vector<pair<Key, Value>> h_pairs(NumKeys);
     generate_kv_pairs_uniform<Key, Value>(h_pairs.begin(), h_pairs.end());
     const thrust::device_vector<pair<Key, Value>> d_pairs(h_pairs);
+    CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
 
     
     pq.push(d_pairs.begin(), d_pairs.end());
-    cudaDeviceSynchronize();
+    CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
   
 }
 
-template <typename Key, typename Value, int NumKeys>
+template <typename Key, typename Value, int Capacity, int NumKeys>
 static void BM_delete()
 {
   
     
 
-    GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(NumKeys);
+    GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(Capacity);
 
     std::vector<pair<Key, Value>> h_pairs(NumKeys);
     generate_kv_pairs_uniform<Key, Value>(h_pairs.begin(), h_pairs.end());
@@ -69,7 +84,8 @@ static void BM_delete()
 
 int main(int argc, char* argv[]) {
 
-  BM_insert<int64_t, int64_t, 1024 * 1024>();
-  BM_delete<int64_t, int64_t, 1024 * 1024>();
+  BM_insert<int64_t, int64_t, 128 * 1024 * 1024, 1024 * 1024>();
+  CUDA_CHECK(cudaDeviceSynchronize()); std::cout << __LINE__ << "\n";
+  BM_delete<int64_t, int64_t, 128 * 1024 * 1024, 1024 * 1024>();
 
 }

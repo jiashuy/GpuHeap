@@ -1,5 +1,5 @@
-nvcc = nvcc
-nvccflag = -std=c++11 -O3 -arch=sm_61 -DHEAP_SORT
+nvcc = /usr/local/cuda-12.6/bin/nvcc
+nvccflag = -std=c++11 -O3 -arch=sm_90 -DHEAP_SORT
 heappath = ../heap/
 
 all: BGPQ_T BGPQ_B BGPQ_Tr

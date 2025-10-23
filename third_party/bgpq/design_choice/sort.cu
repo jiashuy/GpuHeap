@@ -4,7 +4,7 @@
 #include <time.h>
 #include <algorithm>
 #include <cmath>
-
+#include <cstdint>
 #include "heap.cuh"
 #include "util.hpp"
 
