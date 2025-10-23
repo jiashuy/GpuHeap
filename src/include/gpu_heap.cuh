@@ -1,29 +1,12 @@
-/*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+
 
 #pragma once
-
-#include "cuco/utility/allocator.hpp"
 
 #include <thrust/functional.h>
 
 #include <utility>
+#include "cuco/utility/allocator.hpp"
 #include <vector>
-
-namespace cuco {
 
 /*
  * @brief A GPU-accelerated priority queue of key-value pairs
@@ -62,9 +45,10 @@ namespace cuco {
  * @tparam Allocator Allocator defining how memory is allocated internally
  */
 template <typename T,
-          typename Compare   = thrust::less<T>,
-          typename Allocator = cuco::cuda_allocator<char>>
-class priority_queue {
+          typename Compare,
+          typename Allocator=cuco::cuda_allocator<int64_t>>
+class GpuHeap {
+
   using int_allocator_type = typename std::allocator_traits<Allocator>::rebind_alloc<int>;
 
   using t_allocator_type = typename std::allocator_traits<Allocator>::rebind_alloc<T>;
@@ -79,8 +63,8 @@ class priority_queue {
    * @param alloc Allocator used for allocating device storage
    * @param stream Stream used for constructing the priority queue
    */
-  priority_queue(std::size_t initial_capacity,
-                 Allocator const& alloc = Allocator{},
+  GpuHeap(std::size_t initial_capacity,
+            Allocator const& alloc = Allocator{},
                  cudaStream_t stream    = 0);
 
   /**
@@ -126,7 +110,7 @@ class priority_queue {
   /**
    * @brief Destroys the queue and frees its contents
    */
-  ~priority_queue();
+  ~GpuHeap();
 
   class device_mutable_view {
    public:
@@ -261,6 +245,5 @@ class priority_queue {
   Compare compare_{};  ///< Comparator used to order the elements in the queue
 };
 
-}  // namespace cuco
 
-#include "detail/priority_queue.inl"
+#include "detail/gpu_heap_impl.cuh"

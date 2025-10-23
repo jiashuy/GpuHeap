@@ -17,14 +17,13 @@
 #pragma once
 
 #include "cuco/detail/error.hpp"
-#include "priority_queue_kernels.cuh"
+#include "gpu_heap_kernels.cuh"
 
 #include <cmath>
 
-namespace cuco {
 
 template <typename T, typename Compare, typename Allocator>
-priority_queue<T, Compare, Allocator>::priority_queue(std::size_t initial_capacity,
+GpuHeap<T, Compare, Allocator>::GpuHeap(std::size_t initial_capacity,
                                                       Allocator const& allocator,
                                                       cudaStream_t stream)
   : int_allocator_{allocator}, t_allocator_{allocator}, size_t_allocator_{allocator}
@@ -39,44 +38,52 @@ priority_queue<T, Compare, Allocator>::priority_queue(std::size_t initial_capaci
 
   // Allocate device variables
 
-  d_size_ = std::allocator_traits<int_allocator_type>::allocate(int_allocator_, 1, nullptr);
+  // d_size_ = std::allocator_traits<int_allocator_type>::allocate(int_allocator_, 1);
+  d_size_         = int_allocator_.allocate(1, cuda::stream_ref{stream});
+
 
   CUCO_CUDA_TRY(cudaMemsetAsync(d_size_, 0, sizeof(int), stream));
 
-  d_p_buffer_size_ = std::allocator_traits<size_t_allocator_type>::allocate(size_t_allocator_, 1, nullptr);
+  // d_p_buffer_size_ = std::allocator_traits<size_t_allocator_type>::allocate(size_t_allocator_, 1);
+  d_p_buffer_size_ = size_t_allocator_.allocate(1, cuda::stream_ref{stream});
 
   CUCO_CUDA_TRY(cudaMemsetAsync(d_p_buffer_size_, 0, sizeof(std::size_t), stream));
 
-  d_heap_ = std::allocator_traits<t_allocator_type>::allocate(
-    t_allocator_, node_capacity_ * node_size_ + node_size_, nullptr);
+  // d_heap_ = std::allocator_traits<t_allocator_type>::allocate(
+  //   t_allocator_, node_capacity_ * node_size_ + node_size_);
 
-  d_locks_ =
-    std::allocator_traits<int_allocator_type>::allocate(int_allocator_, node_capacity_ + 1, nullptr);
+    d_heap_ = t_allocator_.allocate(node_capacity_ * node_size_ + node_size_, cuda::stream_ref{stream});
+
+  d_locks_ = int_allocator_.allocate(node_capacity_ + 1, cuda::stream_ref{stream});
 
   CUCO_CUDA_TRY(cudaMemsetAsync(d_locks_, 0, sizeof(int) * (node_capacity_ + 1), stream));
 }
 
 template <typename T, typename Compare, typename Allocator>
-priority_queue<T, Compare, Allocator>::~priority_queue()
+GpuHeap<T, Compare, Allocator>::~GpuHeap()
 {
-  std::allocator_traits<int_allocator_type>::deallocate(int_allocator_, d_size_, 1, nullptr);
-  std::allocator_traits<size_t_allocator_type>::deallocate(size_t_allocator_, d_p_buffer_size_, 1,nullptr);
-  std::allocator_traits<t_allocator_type>::deallocate(
-    t_allocator_, d_heap_, node_capacity_ * node_size_ + node_size_, nullptr);
-  std::allocator_traits<int_allocator_type>::deallocate(
-    int_allocator_, d_locks_, node_capacity_ + 1, nullptr);
+  int_allocator_.deallocate(d_size_, 1, cuda::stream_ref{cudaStream_t{nullptr}});
+  size_t_allocator_.deallocate(d_p_buffer_size_, 1, cuda::stream_ref{cudaStream_t{nullptr}});
+  t_allocator_.deallocate(d_heap_, node_capacity_ * node_size_ + node_size_, cuda::stream_ref{cudaStream_t{nullptr}});
+  int_allocator_.deallocate(d_locks_, node_capacity_ + 1, cuda::stream_ref{cudaStream_t{nullptr}});
+  // std::allocator_traits<int_allocator_type>::deallocate(int_allocator_, d_size_, 1);
+  // std::allocator_traits<size_t_allocator_type>::deallocate(size_t_allocator_, d_p_buffer_size_, 1);
+  // std::allocator_traits<t_allocator_type>::deallocate(
+  //   t_allocator_, d_heap_, node_capacity_ * node_size_ + node_size_);
+  // std::allocator_traits<int_allocator_type>::deallocate(
+  //   int_allocator_, d_locks_, node_capacity_ + 1);
 }
 
 template <typename T, typename Compare, typename Allocator>
 template <typename InputIt>
-void priority_queue<T, Compare, Allocator>::push(InputIt first, InputIt last, cudaStream_t stream)
+void GpuHeap<T, Compare, Allocator>::push(InputIt first, InputIt last, cudaStream_t stream)
 {
   constexpr int block_size = 256;
 
   const int num_nodes  = static_cast<int>((last - first) / node_size_) + 1;
   const int num_blocks = std::min(64000, num_nodes);
 
-  detail::push_kernel<<<num_blocks, block_size, get_shmem_size(block_size), stream>>>(
+  push_kernel<<<num_blocks, block_size, get_shmem_size(block_size), stream>>>(
     first,
     last - first,
     d_heap_,
@@ -92,7 +99,7 @@ void priority_queue<T, Compare, Allocator>::push(InputIt first, InputIt last, cu
 
 template <typename T, typename Compare, typename Allocator>
 template <typename OutputIt>
-void priority_queue<T, Compare, Allocator>::pop(OutputIt first, OutputIt last, cudaStream_t stream)
+void GpuHeap<T, Compare, Allocator>::pop(OutputIt first, OutputIt last, cudaStream_t stream)
 {
   constexpr int block_size = 256;
   const int pop_size       = last - first;
@@ -100,7 +107,7 @@ void priority_queue<T, Compare, Allocator>::pop(OutputIt first, OutputIt last, c
   const int num_nodes  = static_cast<int>(pop_size / node_size_) + 1;
   const int num_blocks = std::min(64000, num_nodes);
 
-  detail::pop_kernel<<<num_blocks, block_size, get_shmem_size(block_size), stream>>>(
+  pop_kernel<<<num_blocks, block_size, get_shmem_size(block_size), stream>>>(
     first,
     pop_size,
     d_heap_,
@@ -117,17 +124,17 @@ void priority_queue<T, Compare, Allocator>::pop(OutputIt first, OutputIt last, c
 
 template <typename T, typename Compare, typename Allocator>
 template <typename CG, typename InputIt>
-__device__ void priority_queue<T, Compare, Allocator>::device_mutable_view::push(CG const& g,
+__device__ void GpuHeap<T, Compare, Allocator>::device_mutable_view::push(CG const& g,
                                                                                  InputIt first,
                                                                                  InputIt last,
                                                                                  void* temp_storage)
 {
-  const detail::shared_memory_layout<T> shmem =
-    detail::get_shared_memory_layout<T>((int*)temp_storage, g.size(), node_size_);
+  const shared_memory_layout<T> shmem =
+    get_shared_memory_layout<T>((int*)temp_storage, g.size(), node_size_);
 
   const auto push_size = last - first;
   for (std::size_t i = 0; i < push_size / node_size_; i++) {
-    detail::push_single_node(g,
+    push_single_node(g,
                              first + i * node_size_,
                              d_heap_,
                              d_size_,
@@ -139,7 +146,7 @@ __device__ void priority_queue<T, Compare, Allocator>::device_mutable_view::push
   }
 
   if (push_size % node_size_ != 0) {
-    detail::push_partial_node(g,
+    push_partial_node(g,
                               first + (push_size / node_size_) * node_size_,
                               push_size % node_size_,
                               d_heap_,
@@ -155,17 +162,17 @@ __device__ void priority_queue<T, Compare, Allocator>::device_mutable_view::push
 
 template <typename T, typename Compare, typename Allocator>
 template <typename CG, typename OutputIt>
-__device__ void priority_queue<T, Compare, Allocator>::device_mutable_view::pop(CG const& g,
+__device__ void GpuHeap<T, Compare, Allocator>::device_mutable_view::pop(CG const& g,
                                                                                 OutputIt first,
                                                                                 OutputIt last,
                                                                                 void* temp_storage)
 {
-  const detail::shared_memory_layout<T> shmem =
-    detail::get_shared_memory_layout<T>((int*)temp_storage, g.size(), node_size_);
+  const shared_memory_layout<T> shmem =
+    get_shared_memory_layout<T>((int*)temp_storage, g.size(), node_size_);
 
   const auto pop_size = last - first;
   for (std::size_t i = 0; i < pop_size / node_size_; i++) {
-    detail::pop_single_node(g,
+    pop_single_node(g,
                             first + i * node_size_,
                             d_heap_,
                             d_size_,
@@ -179,7 +186,7 @@ __device__ void priority_queue<T, Compare, Allocator>::device_mutable_view::pop(
   }
 
   if (pop_size % node_size_ != 0) {
-    detail::pop_partial_node(g,
+    pop_partial_node(g,
                              first + (pop_size / node_size_) * node_size_,
                              last - first,
                              d_heap_,
@@ -193,5 +200,3 @@ __device__ void priority_queue<T, Compare, Allocator>::device_mutable_view::pop(
                              compare_);
   }
 }
-
-}  // namespace cuco

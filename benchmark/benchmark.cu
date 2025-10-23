@@ -1,5 +1,5 @@
-#include "priority_queue.cuh"
-#include <cuco/detail/pair.cuh>
+#include "gpu_heap.cuh"
+#include <cuco/pair.cuh>
 
 #include <thrust/device_vector.h>
 
@@ -28,30 +28,30 @@ static void generate_kv_pairs_uniform(OutputIt output_begin, OutputIt output_end
 }
 
 template <typename Key, typename Value, int NumKeys>
-static void BM_insert(::benchmark::State& state)
+static void BM_insert()
 {
-  for (auto _ : state) {
-    state.PauseTiming();
 
-    priority_queue<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(NumKeys);
+    
+
+    GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(NumKeys);
 
     std::vector<pair<Key, Value>> h_pairs(NumKeys);
     generate_kv_pairs_uniform<Key, Value>(h_pairs.begin(), h_pairs.end());
     const thrust::device_vector<pair<Key, Value>> d_pairs(h_pairs);
 
-    state.ResumeTiming();
+    
     pq.push(d_pairs.begin(), d_pairs.end());
     cudaDeviceSynchronize();
-  }
+  
 }
 
 template <typename Key, typename Value, int NumKeys>
-static void BM_delete(::benchmark::State& state)
+static void BM_delete()
 {
-  for (auto _ : state) {
-    state.PauseTiming();
+  
+    
 
-    priority_queue<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(NumKeys);
+    GpuHeap<pair<Key, Value>, pair_less<pair<Key, Value>>> pq(NumKeys);
 
     std::vector<pair<Key, Value>> h_pairs(NumKeys);
     generate_kv_pairs_uniform<Key, Value>(h_pairs.begin(), h_pairs.end());
@@ -60,13 +60,16 @@ static void BM_delete(::benchmark::State& state)
     pq.push(d_pairs.begin(), d_pairs.end());
     cudaDeviceSynchronize();
 
-    state.ResumeTiming();
+    
     pq.pop(d_pairs.begin(), d_pairs.end());
     cudaDeviceSynchronize();
-  }
+  
 }
 
 
 int main(int argc, char* argv[]) {
+
+  BM_insert<int64_t, int64_t, 1024 * 1024>();
+  BM_delete<int64_t, int64_t, 1024 * 1024>();
 
 }
