@@ -263,4 +263,4 @@ class priority_queue {
 
 }  // namespace cuco
 
-#include <cuco/detail/priority_queue.inl>
+#include "detail/priority_queue.inl"

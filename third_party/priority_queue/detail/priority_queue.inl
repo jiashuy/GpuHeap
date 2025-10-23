@@ -17,7 +17,7 @@
 #pragma once
 
 #include <cuco/detail/error.hpp>
-#include <cuco/detail/priority_queue_kernels.cuh>
+#include "priority_queue_kernels.cuh"
 
 #include <cmath>
 
